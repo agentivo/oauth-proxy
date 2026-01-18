@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Creates a Cloudflare Tunnel for the OAuth proxy.
+Setup Cloudflare Tunnel for OAuth proxy
 """
 
 import json
@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-# Add parent's scripts to path for shared tunnel manager
+# Add whatsapp-automation scripts for shared tunnel manager
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "whatsapp-automation" / "scripts"))
 
 try:
@@ -20,11 +20,14 @@ except ImportError:
 
 
 def main():
-    # Load from environment or .env file
     api_token = os.environ.get("CLOUDFLARE_API_TOKEN")
     account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+    domain = os.environ.get("TUNNEL_DOMAIN", "neevs.io")
+    subdomain = os.environ.get("TUNNEL_SUBDOMAIN", "oauth")
+    port = os.environ.get("PORT", "3000")
 
     if not api_token or not account_id:
+        # Try loading from .env
         env_path = Path(__file__).parent.parent / ".env"
         if env_path.exists():
             for line in env_path.read_text().splitlines():
@@ -35,33 +38,59 @@ def main():
             account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
 
     if not api_token or not account_id:
-        print("Error: CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID required")
-        print("Set them in environment or create .env file")
+        print("Error: Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID")
         sys.exit(1)
 
-    domain = os.environ.get("TUNNEL_DOMAIN", "neevs.io")
-    subdomain = os.environ.get("TUNNEL_SUBDOMAIN", "oauth")
-
     manager = CloudflareTunnelManager(api_token, account_id)
+    tunnel_name = f"oauth-proxy-{subdomain}"
 
-    print(f"Setting up tunnel: {subdomain}.{domain}")
+    print(f"Setting up tunnel: {tunnel_name}")
+    print(f"Endpoint: https://{subdomain}.{domain}/callback")
 
-    tunnel = manager.create_or_get_tunnel(
-        name=f"oauth-proxy-{subdomain}",
-        subdomain=subdomain,
-        domain=domain,
-        service_url="http://localhost:3000"
-    )
+    # Check if tunnel exists
+    existing = manager.get_tunnel_by_name(tunnel_name)
+
+    if existing:
+        tunnel_id = existing["id"]
+        print(f"Using existing tunnel: {tunnel_id}")
+        # Get token for existing tunnel
+        result = manager._request("GET", f"cfd_tunnel/{tunnel_id}/token")
+        result_data = result.get("result", {})
+        tunnel_token = result_data.get("token") if isinstance(result_data, dict) else result_data
+    else:
+        print("Creating new tunnel...")
+        tunnel_id, tunnel_token = manager.create_tunnel(tunnel_name)
+        print(f"Created tunnel: {tunnel_id}")
+
+    # Configure route
+    print("Configuring route...")
+    manager.create_route(tunnel_id, subdomain, domain, f"http://localhost:{port}")
+
+    # Setup DNS
+    print("Setting up DNS...")
+    zone_id = manager.get_zone_id(domain)
+    manager.ensure_dns_record(zone_id, subdomain, domain, tunnel_id)
 
     # Save tunnel config
-    config_path = Path(__file__).parent.parent / "tunnel.json"
-    config_path.write_text(json.dumps(tunnel, indent=2))
+    tunnels_file = Path(__file__).parent.parent / "tunnel.json"
+    config = {
+        "tunnel_id": tunnel_id,
+        "tunnel_name": tunnel_name,
+        "tunnel_token": tunnel_token,
+        "subdomain": subdomain,
+        "domain": domain,
+        "url": f"https://{subdomain}.{domain}",
+        "service_url": f"http://localhost:{port}"
+    }
 
-    print(f"\nTunnel created!")
-    print(f"  URL: https://{subdomain}.{domain}")
-    print(f"  Token saved to: tunnel.json")
+    with open(tunnels_file, "w") as f:
+        json.dump(config, f, indent=2)
+
+    print(f"\nTunnel configured!")
+    print(f"URL: https://{subdomain}.{domain}")
+    print(f"Config saved to: {tunnels_file}")
     print(f"\nAdd TUNNEL_TOKEN to GitHub secrets:")
-    print(f"  gh secret set TUNNEL_TOKEN --repo agentivo/oauth-proxy")
+    print(f"  gh secret set TUNNEL_TOKEN --repo agentivo/oauth-proxy --body '{tunnel_token}'")
 
 
 if __name__ == "__main__":
