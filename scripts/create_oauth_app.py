@@ -67,8 +67,8 @@ def main():
     print("=" * 60 + "\n")
 
     # Command to update oauth-proxy secrets
-    print("# 1. Add client to oauth-proxy GITHUB_CLIENTS env var:")
-    print(f'#    Add to GITHUB_CLIENTS: {{"{client_id}":"{client_secret}"}}')
+    print("# 1. Add client to oauth-proxy OAUTH_CLIENTS env var:")
+    print(f'#    Add to OAUTH_CLIENTS: {{"{client_id}":"{client_secret}"}}')
     print()
     print("# Or set as individual env vars (backwards compatible):")
     print(f"#    GITHUB_CLIENT_ID={client_id}")
