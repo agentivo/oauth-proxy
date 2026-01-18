@@ -3,13 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "tail": "wrangler tail"
-  },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250109.0",
-    "typescript": "^5.7.3",
-    "wrangler": "^4.0.0"
+    "start": "node server.js",
+    "setup-tunnel": "python3 scripts/setup_tunnel.py"
   }
 }

@@ -3,7 +3,7 @@
 Creates a GitHub OAuth App for agentivo extensions.
 
 This OAuth App is shared across all agentivo Chrome extensions.
-The callback URL points to the oauth-proxy Cloudflare Worker.
+The callback URL points to the oauth-proxy tunnel.
 """
 
 import signal
@@ -19,9 +19,9 @@ signal.signal(signal.SIGINT, handle_sigint)
 
 ORG = "agentivo"
 APP_NAME = "Agentivo Extensions"
-CALLBACK_URL = "https://oauth-proxy.agentivo.workers.dev/callback"
+CALLBACK_URL = "https://oauth.neevs.io/callback"
 HOMEPAGE = "https://github.com/agentivo"
-DESCRIPTION = "OAuth for agentivo Chrome extensions (GitHub Models API access)"
+DESCRIPTION = "OAuth for agentivo Chrome extensions"
 
 
 def main():
@@ -38,7 +38,6 @@ def main():
     input("Press Enter to open browser...")
 
     # GitHub OAuth App creation URL
-    # Note: OAuth Apps are created via the web UI, not API
     github_url = (
         f"https://github.com/organizations/{ORG}/settings/applications/new?"
         f"oauth_application[name]={quote(APP_NAME)}&"
@@ -52,16 +51,11 @@ def main():
     print("\nAfter creating the OAuth App:")
     print("1. Copy the Client ID")
     print("2. Generate a new Client Secret")
-    print("3. Add secrets to GitHub repo (agentivo/oauth-proxy):")
+    print("3. Store them securely for use in extensions")
     print()
-    print("   gh secret set GITHUB_OAUTH_CLIENT_ID --repo agentivo/oauth-proxy")
-    print("   gh secret set GITHUB_OAUTH_CLIENT_SECRET --repo agentivo/oauth-proxy")
-    print()
-    print("4. For each extension that uses this OAuth App, add:")
-    print("   - GITHUB_OAUTH_CLIENT_ID (same value)")
-    print()
-    print("Extensions will use the shared Client ID to initiate OAuth flow.")
-    print("The oauth-proxy worker handles the callback redirect.")
+    print("For extensions that use this OAuth App:")
+    print("  - Add GITHUB_OAUTH_CLIENT_ID to extension config")
+    print("  - The oauth-proxy handles the callback redirect")
 
 
 if __name__ == "__main__":

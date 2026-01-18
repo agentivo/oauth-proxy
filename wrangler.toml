@@ -1,9 +1,0 @@
-name = "oauth-proxy"
-main = "src/index.ts"
-compatibility_date = "2025-01-15"
-
-# Custom domain (configure in Cloudflare dashboard)
-# routes = [{ pattern = "auth.agentivo.dev", custom_domain = true }]
-
-[vars]
-ALLOWED_PROVIDERS = "github"

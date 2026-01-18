@@ -1,13 +1,26 @@
 name: Deploy
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      duration_hours:
+        description: 'Duration in hours (max 5.5)'
+        required: false
+        default: '5'
+      auto_restart:
+        description: 'Auto-restart before timeout'
+        required: false
+        default: 'true'
+        type: boolean
+
+  repository_dispatch:
+    types: [restart-deploy]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 350
+
     steps:
       - uses: actions/checkout@v4
 
@@ -15,10 +28,77 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Start server
+        run: |
+          node server.js &
+          sleep 2
+          curl -f http://localhost:3000/health || exit 1
+          echo "Server started successfully"
 
-      - name: Deploy to Cloudflare Workers
-        run: npx wrangler deploy
+      - name: Setup Cloudflare Tunnel
+        run: |
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          chmod +x cloudflared
+          ./cloudflared tunnel --url http://localhost:3000 --no-autoupdate run --token "${{ secrets.TUNNEL_TOKEN }}" &
+          sleep 5
+          echo "Tunnel started"
+
+      - name: Monitor
+        run: |
+          DURATION_SECONDS=$(( ${{ github.event.inputs.duration_hours || 5 }} * 3600 ))
+          RESTART_BUFFER=300  # 5 minutes before timeout
+          END_TIME=$((SECONDS + DURATION_SECONDS - RESTART_BUFFER))
+
+          echo "Running for ${{ github.event.inputs.duration_hours || 5 }} hours..."
+
+          while [ $SECONDS -lt $END_TIME ]; do
+            if ! curl -sf http://localhost:3000/health > /dev/null; then
+              echo "Health check failed, restarting server..."
+              pkill -f "node server.js" || true
+              node server.js &
+              sleep 2
+            fi
+            sleep 30
+          done
+
+          echo "Approaching timeout..."
+
+      - name: Auto-restart
+        if: ${{ github.event.inputs.auto_restart != 'false' }}
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          APP_ID: ${{ secrets.APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APP_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
+            echo "Skipping auto-restart: APP_ID or APP_PRIVATE_KEY not set"
+            exit 0
+          fi
+
+          # Generate JWT
+          NOW=$(date +%s)
+          IAT=$((NOW - 60))
+          EXP=$((NOW + 600))
+
+          HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+          PAYLOAD=$(echo -n "{\"iat\":$IAT,\"exp\":$EXP,\"iss\":\"$APP_ID\"}" | base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+
+          echo "$APP_PRIVATE_KEY" > /tmp/key.pem
+          SIGNATURE=$(echo -n "$HEADER.$PAYLOAD" | openssl dgst -sha256 -sign /tmp/key.pem | base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+          rm /tmp/key.pem
+
+          JWT="$HEADER.$PAYLOAD.$SIGNATURE"
+
+          # Get installation token
+          INSTALLATION_ID=$(curl -s -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/app/installations" | jq '.[0].id')
+
+          TOKEN=$(curl -s -X POST -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/app/installations/$INSTALLATION_ID/access_tokens" | jq -r '.token')
+
+          # Trigger restart
+          curl -X POST -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/dispatches" \
+            -d '{"event_type":"restart-deploy"}'
+
+          echo "Restart triggered, sleeping before this run ends..."
+          sleep 90
