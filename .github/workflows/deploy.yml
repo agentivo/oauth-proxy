@@ -1,9 +1,5 @@
 name: Deploy
 
-concurrency:
-  group: deploy
-  cancel-in-progress: true
-
 on:
   workflow_dispatch:
     inputs:
@@ -24,9 +20,31 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    permissions:
+      actions: write
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Find previous workflow
+        id: find_previous
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PREVIOUS_RUN_ID=$(curl -s \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/deploy.yml/runs?status=in_progress" \
+            | jq -r ".workflow_runs[] | select(.id < ${{ github.run_id }}) | .id" | head -1)
+
+          if [ -n "$PREVIOUS_RUN_ID" ] && [ "$PREVIOUS_RUN_ID" != "null" ]; then
+            echo "previous_run_id=$PREVIOUS_RUN_ID" >> $GITHUB_OUTPUT
+            echo "Found previous run: $PREVIOUS_RUN_ID"
+          else
+            echo "previous_run_id=" >> $GITHUB_OUTPUT
+            echo "No previous run found"
+          fi
 
       - uses: actions/setup-node@v4
         with:
@@ -50,62 +68,115 @@ jobs:
           sleep 5
           echo "Tunnel started"
 
-      - name: Monitor
+      - name: Cancel previous workflow
+        if: steps.find_previous.outputs.previous_run_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          DURATION_SECONDS=$(( ${{ github.event.inputs.duration_hours || 5 }} * 3600 ))
-          RESTART_BUFFER=300  # 5 minutes before timeout
-          END_TIME=$((SECONDS + DURATION_SECONDS - RESTART_BUFFER))
+          curl -s -X POST \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ steps.find_previous.outputs.previous_run_id }}/cancel"
+          echo "Graceful handoff: waiting 30s for previous instance to shutdown"
+          sleep 30
 
-          echo "Running for ${{ github.event.inputs.duration_hours || 5 }} hours..."
+      - name: Monitor
+        env:
+          APP_ID: ${{ secrets.APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+        run: |
+          cleanup() {
+            pkill -f "node server.js" || true
+            exit 0
+          }
+          trap cleanup SIGTERM SIGINT
 
-          while [ $SECONDS -lt $END_TIME ]; do
+          generate_app_token() {
+            NOW=$(date +%s)
+            IAT=$((NOW - 60))
+            EXP=$((NOW + 600))
+
+            HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | openssl base64 -e | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+            PAYLOAD=$(echo -n "{\"iat\":${IAT},\"exp\":${EXP},\"iss\":\"${APP_ID}\"}" | openssl base64 -e | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+            SIGNATURE=$(echo -n "${HEADER}.${PAYLOAD}" | openssl dgst -sha256 -sign <(echo "$APP_PRIVATE_KEY") | openssl base64 -e | tr -d '=' | tr '/+' '_-' | tr -d '\n')
+
+            JWT="${HEADER}.${PAYLOAD}.${SIGNATURE}"
+
+            INSTALLATION_ID=$(curl -s \
+              -H "Authorization: Bearer $JWT" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/installation" | jq -r '.id')
+
+            if [ -z "$INSTALLATION_ID" ] || [ "$INSTALLATION_ID" = "null" ]; then
+              echo ""
+              return 1
+            fi
+
+            curl -sX POST \
+              -H "Authorization: Bearer $JWT" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens" | jq -r '.token'
+          }
+
+          DURATION_HOURS="${{ github.event.client_payload.duration_hours || github.event.inputs.duration_hours || '5' }}"
+          DURATION=$((DURATION_HOURS * 3600))
+          RESTART_THRESHOLD=$((DURATION - 360))
+          START_TIME=$(date +%s)
+          RESTART_TRIGGERED=false
+
+          AUTO_RESTART="${{ github.event.client_payload.auto_restart || github.event.inputs.auto_restart }}"
+          if [ -z "$AUTO_RESTART" ]; then
+            AUTO_RESTART="true"
+          fi
+
+          echo "Duration: ${DURATION_HOURS}h | Auto-restart: $AUTO_RESTART"
+
+          while true; do
+            ELAPSED=$(($(date +%s) - START_TIME))
+            REMAINING=$((DURATION - ELAPSED))
+
             if ! curl -sf http://localhost:3000/health > /dev/null; then
               echo "Health check failed, restarting server..."
               pkill -f "node server.js" || true
               node server.js &
               sleep 2
             fi
+
+            printf "[%s] Server running | %dm elapsed | %dm remaining\n" \
+              "$(date '+%H:%M:%S')" "$((ELAPSED/60))" "$((REMAINING/60))"
+
+            if [ "$ELAPSED" -gt "$RESTART_THRESHOLD" ] && [ "$RESTART_TRIGGERED" = "false" ]; then
+              if [ "$AUTO_RESTART" = "true" ] && [ -n "$APP_ID" ] && [ -n "$APP_PRIVATE_KEY" ]; then
+                echo "Generating fresh token and triggering restart..."
+
+                APP_TOKEN=$(generate_app_token)
+                if [ -z "$APP_TOKEN" ]; then
+                  echo "ERROR: Failed to generate app token"
+                  RESTART_TRIGGERED=true
+                else
+                  RESPONSE=$(curl -sX POST \
+                    -H "Accept: application/vnd.github+json" \
+                    -H "Authorization: Bearer $APP_TOKEN" \
+                    "https://api.github.com/repos/${{ github.repository }}/dispatches" \
+                    -d "{\"event_type\":\"restart-deploy\",\"client_payload\":{\"duration_hours\":\"$DURATION_HOURS\",\"auto_restart\":true}}" \
+                    -w "\nHTTP_STATUS:%{http_code}" 2>&1)
+
+                  HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d: -f2)
+
+                  if [ "$HTTP_CODE" = "204" ]; then
+                    echo "SUCCESS: Restart triggered! Waiting 90s for new instance..."
+                    sleep 90
+                  else
+                    echo "ERROR: Failed to trigger restart (HTTP $HTTP_CODE)"
+                  fi
+
+                  RESTART_TRIGGERED=true
+                fi
+              fi
+            fi
+
+            [ $ELAPSED -gt $DURATION ] && break
             sleep 30
           done
 
-          echo "Approaching timeout..."
-
-      - name: Auto-restart
-        if: ${{ github.event.inputs.auto_restart != 'false' }}
-        env:
-          APP_ID: ${{ secrets.APP_ID }}
-          APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
-        run: |
-          if [ -z "$APP_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
-            echo "Skipping auto-restart: APP_ID or APP_PRIVATE_KEY not set"
-            exit 0
-          fi
-
-          # Generate JWT
-          NOW=$(date +%s)
-          IAT=$((NOW - 60))
-          EXP=$((NOW + 600))
-
-          HEADER=$(echo -n '{"alg":"RS256","typ":"JWT"}' | base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
-          PAYLOAD=$(echo -n "{\"iat\":$IAT,\"exp\":$EXP,\"iss\":\"$APP_ID\"}" | base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
-
-          echo "$APP_PRIVATE_KEY" > /tmp/key.pem
-          SIGNATURE=$(echo -n "$HEADER.$PAYLOAD" | openssl dgst -sha256 -sign /tmp/key.pem | base64 | tr -d '=' | tr '/+' '_-' | tr -d '\n')
-          rm /tmp/key.pem
-
-          JWT="$HEADER.$PAYLOAD.$SIGNATURE"
-
-          # Get installation token
-          INSTALLATION_ID=$(curl -s -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/app/installations" | jq '.[0].id')
-
-          TOKEN=$(curl -s -X POST -H "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/app/installations/$INSTALLATION_ID/access_tokens" | jq -r '.token')
-
-          # Trigger restart
-          curl -X POST -H "Authorization: token $TOKEN" -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/dispatches" \
-            -d '{"event_type":"restart-deploy"}'
-
-          echo "Restart triggered, sleeping before this run ends..."
-          sleep 90
+          cleanup
