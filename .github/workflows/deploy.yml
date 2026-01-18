@@ -6,7 +6,7 @@ on:
       duration_hours:
         description: 'Duration in hours (max 5.5)'
         required: false
-        default: '1'
+        default: '5'
       auto_restart:
         description: 'Auto-restart before timeout'
         required: false
