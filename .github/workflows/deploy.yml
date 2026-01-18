@@ -117,6 +117,7 @@ jobs:
             curl -sX POST \
               -H "Authorization: Bearer $JWT" \
               -H "Accept: application/vnd.github+json" \
+              -d '{"permissions":{"contents":"write"}}' \
               "https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens" | jq -r '.token'
           }
 
