@@ -64,9 +64,9 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    if (!parsedState.extensionId || !parsedState.provider) {
+    if (!parsedState.provider) {
       res.writeHead(400, { 'Content-Type': 'text/plain' });
-      res.end('Invalid state: missing extensionId or provider');
+      res.end('Invalid state: missing provider');
       return;
     }
 
@@ -76,7 +76,34 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // Redirect back to Chrome extension
+    // Exchange code for token immediately for web apps
+    if (parsedState.redirect_url) {
+      try {
+        const tokenResponse = await exchangeGitHubCode(code);
+        if (tokenResponse.error) {
+          const errorUrl = `${parsedState.redirect_url}?error=${encodeURIComponent(tokenResponse.error_description || tokenResponse.error)}`;
+          res.writeHead(302, { 'Location': errorUrl });
+          res.end();
+          return;
+        }
+        const successUrl = `${parsedState.redirect_url}?token=${encodeURIComponent(tokenResponse.access_token)}`;
+        res.writeHead(302, { 'Location': successUrl });
+        res.end();
+        return;
+      } catch (err) {
+        const errorUrl = `${parsedState.redirect_url}?error=${encodeURIComponent(err.message)}`;
+        res.writeHead(302, { 'Location': errorUrl });
+        res.end();
+        return;
+      }
+    }
+
+    // Redirect back to Chrome extension (legacy flow)
+    if (!parsedState.extensionId) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Invalid state: missing extensionId or redirect_url');
+      return;
+    }
     const redirectUrl = `https://${parsedState.extensionId}.chromiumapp.org/?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
     res.writeHead(302, { 'Location': redirectUrl });
     res.end();
