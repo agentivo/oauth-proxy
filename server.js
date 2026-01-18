@@ -7,7 +7,7 @@ const ALLOWED_PROVIDERS = (process.env.ALLOWED_PROVIDERS || 'github').split(',')
 
 // Support multiple GitHub OAuth apps via JSON: {"client_id":"secret", ...}
 // Falls back to single GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET for backwards compatibility
-const GITHUB_CLIENTS = process.env.GITHUB_CLIENTS ? JSON.parse(process.env.GITHUB_CLIENTS) : {};
+const GITHUB_CLIENTS = process.env.OAUTH_CLIENTS ? JSON.parse(process.env.OAUTH_CLIENTS) : {};
 if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
   GITHUB_CLIENTS[process.env.GITHUB_CLIENT_ID] = process.env.GITHUB_CLIENT_SECRET;
 }
