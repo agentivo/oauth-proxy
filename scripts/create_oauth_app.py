@@ -48,14 +48,42 @@ def main():
 
     webbrowser.open(github_url)
 
-    print("\nAfter creating the OAuth App:")
-    print("1. Copy the Client ID")
-    print("2. Generate a new Client Secret")
-    print("3. Store them securely for use in extensions")
+    print("\n" + "=" * 60)
+    print("After creating the OAuth App, enter the credentials below:")
+    print("=" * 60 + "\n")
+
+    client_id = input("Client ID: ").strip()
+    if not client_id:
+        print("Error: Client ID is required")
+        sys.exit(1)
+
+    client_secret = input("Client Secret: ").strip()
+    if not client_secret:
+        print("Error: Client Secret is required")
+        sys.exit(1)
+
+    print("\n" + "=" * 60)
+    print("Run these commands:")
+    print("=" * 60 + "\n")
+
+    # Command to update oauth-proxy secrets
+    print("# 1. Add client to oauth-proxy GITHUB_CLIENTS env var:")
+    print(f'#    Add to GITHUB_CLIENTS: {{"{client_id}":"{client_secret}"}}')
     print()
-    print("For extensions that use this OAuth App:")
-    print("  - Add GITHUB_OAUTH_CLIENT_ID to extension config")
-    print("  - The oauth-proxy handles the callback redirect")
+    print("# Or set as individual env vars (backwards compatible):")
+    print(f"#    GITHUB_CLIENT_ID={client_id}")
+    print(f"#    GITHUB_CLIENT_SECRET={client_secret}")
+    print()
+
+    # Command to set GitHub secret
+    print("# 2. Add to GitHub secrets (if using GitHub Actions):")
+    print(f"gh secret set GITHUB_CLIENT_ID --repo {ORG}/oauth-proxy --body '{client_id}'")
+    print(f"gh secret set GITHUB_CLIENT_SECRET --repo {ORG}/oauth-proxy --body '{client_secret}'")
+    print()
+
+    # Instructions for extensions
+    print("# 3. For extensions using this OAuth App:")
+    print(f"#    Set GITHUB_OAUTH_CLIENT_ID={client_id} in extension config")
 
 
 if __name__ == "__main__":

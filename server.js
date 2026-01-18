@@ -4,8 +4,17 @@ const url = require('url');
 
 const PORT = process.env.PORT || 3000;
 const ALLOWED_PROVIDERS = (process.env.ALLOWED_PROVIDERS || 'github').split(',');
-const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
-const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+
+// Support multiple GitHub OAuth apps via JSON: {"client_id":"secret", ...}
+// Falls back to single GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET for backwards compatibility
+const GITHUB_CLIENTS = process.env.GITHUB_CLIENTS ? JSON.parse(process.env.GITHUB_CLIENTS) : {};
+if (process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET) {
+  GITHUB_CLIENTS[process.env.GITHUB_CLIENT_ID] = process.env.GITHUB_CLIENT_SECRET;
+}
+
+function getClientSecret(clientId) {
+  return GITHUB_CLIENTS[clientId];
+}
 
 const server = http.createServer(async (req, res) => {
   const parsedUrl = url.parse(req.url, true);
@@ -28,11 +37,11 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (parsedUrl.pathname === '/config') {
-    // Return public OAuth config (client_id only, never secret)
+    // Return public OAuth config (client_ids only, never secrets)
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       github: {
-        client_id: GITHUB_CLIENT_ID,
+        client_ids: Object.keys(GITHUB_CLIENTS),
         authorize_url: 'https://github.com/login/oauth/authorize',
         callback_url: 'https://oauth.neevs.io/callback'
       }
@@ -78,8 +87,18 @@ const server = http.createServer(async (req, res) => {
 
     // Exchange code for token immediately for web apps
     if (parsedState.redirect_url) {
+      const clientId = parsedState.client_id;
+      const clientSecret = getClientSecret(clientId);
+
+      if (!clientId || !clientSecret) {
+        const errorUrl = `${parsedState.redirect_url}?error=${encodeURIComponent('Unknown client_id')}`;
+        res.writeHead(302, { 'Location': errorUrl });
+        res.end();
+        return;
+      }
+
       try {
-        const tokenResponse = await exchangeGitHubCode(code);
+        const tokenResponse = await exchangeGitHubCode(code, clientId, clientSecret);
         if (tokenResponse.error) {
           const errorUrl = `${parsedState.redirect_url}?error=${encodeURIComponent(tokenResponse.error_description || tokenResponse.error)}`;
           res.writeHead(302, { 'Location': errorUrl });
@@ -116,7 +135,7 @@ const server = http.createServer(async (req, res) => {
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
       try {
-        const { code, provider } = JSON.parse(body);
+        const { code, provider, client_id } = JSON.parse(body);
 
         if (!code || !provider) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -130,14 +149,18 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
-        if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
+        // Use provided client_id or fall back to first available
+        const clientId = client_id || Object.keys(GITHUB_CLIENTS)[0];
+        const clientSecret = getClientSecret(clientId);
+
+        if (!clientId || !clientSecret) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'OAuth not configured' }));
+          res.end(JSON.stringify({ error: 'OAuth not configured for this client' }));
           return;
         }
 
         // Exchange code for token with GitHub
-        const tokenResponse = await exchangeGitHubCode(code);
+        const tokenResponse = await exchangeGitHubCode(code, clientId, clientSecret);
 
         if (tokenResponse.error) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -163,11 +186,11 @@ const server = http.createServer(async (req, res) => {
   res.end('Not found');
 });
 
-function exchangeGitHubCode(code) {
+function exchangeGitHubCode(code, clientId, clientSecret) {
   return new Promise((resolve, reject) => {
     const postData = JSON.stringify({
-      client_id: GITHUB_CLIENT_ID,
-      client_secret: GITHUB_CLIENT_SECRET,
+      client_id: clientId,
+      client_secret: clientSecret,
       code: code
     });
 
@@ -203,4 +226,5 @@ function exchangeGitHubCode(code) {
 
 server.listen(PORT, () => {
   console.log(`OAuth proxy server running on port ${PORT}`);
+  console.log(`Configured GitHub clients: ${Object.keys(GITHUB_CLIENTS).length}`);
 });
