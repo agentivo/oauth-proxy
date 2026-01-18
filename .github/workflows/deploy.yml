@@ -29,6 +29,9 @@ jobs:
           node-version: '22'
 
       - name: Start server
+        env:
+          GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
+          GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
         run: |
           node server.js &
           sleep 2
