@@ -56,6 +56,7 @@ jobs:
           OAUTH_SECRET_Ov23lianHkw0Uog0VGxT: ${{ secrets.OAUTH_SECRET_Ov23lianHkw0Uog0VGxT }}
           OAUTH_SECRET_Ov23liX3UPEO7XugIIbO: ${{ secrets.OAUTH_SECRET_Ov23liX3UPEO7XugIIbO }}
           OAUTH_SECRET_Ov23liQA6Ufehp6TlrLb: ${{ secrets.OAUTH_SECRET_Ov23liQA6Ufehp6TlrLb }}
+          OAUTH_SECRET_Ov23liAQe2qdVm4eMPNp: ${{ secrets.OAUTH_SECRET_Ov23liAQe2qdVm4eMPNp }}
         run: |
           node server.js &
           sleep 2
@@ -88,6 +89,7 @@ jobs:
           OAUTH_SECRET_Ov23lianHkw0Uog0VGxT: ${{ secrets.OAUTH_SECRET_Ov23lianHkw0Uog0VGxT }}
           OAUTH_SECRET_Ov23liX3UPEO7XugIIbO: ${{ secrets.OAUTH_SECRET_Ov23liX3UPEO7XugIIbO }}
           OAUTH_SECRET_Ov23liQA6Ufehp6TlrLb: ${{ secrets.OAUTH_SECRET_Ov23liQA6Ufehp6TlrLb }}
+          OAUTH_SECRET_Ov23liAQe2qdVm4eMPNp: ${{ secrets.OAUTH_SECRET_Ov23liAQe2qdVm4eMPNp }}
           APP_ID: ${{ secrets.APP_ID }}
           APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
         run: |
