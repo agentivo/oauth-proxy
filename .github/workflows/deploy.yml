@@ -52,8 +52,6 @@ jobs:
 
       - name: Start server
         env:
-          GITHUB_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
-          GITHUB_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
           OAUTH_CLIENTS: ${{ secrets.OAUTH_CLIENTS }}
         run: |
           node server.js &
@@ -83,8 +81,6 @@ jobs:
 
       - name: Monitor
         env:
-          GITHUB_CLIENT_ID: ${{ secrets.OAUTH_CLIENT_ID }}
-          GITHUB_CLIENT_SECRET: ${{ secrets.OAUTH_CLIENT_SECRET }}
           OAUTH_CLIENTS: ${{ secrets.OAUTH_CLIENTS }}
           APP_ID: ${{ secrets.APP_ID }}
           APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
