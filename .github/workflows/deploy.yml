@@ -122,15 +122,23 @@ jobs:
               return 1
             fi
 
-            curl -sX POST \
+            TOKEN_RESPONSE=$(curl -sX POST \
               -H "Authorization: Bearer $JWT" \
               -H "Accept: application/vnd.github+json" \
               -d '{"permissions":{"contents":"write"}}' \
-              "https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens" | jq -r '.token'
+              "https://api.github.com/app/installations/${INSTALLATION_ID}/access_tokens")
+
+            TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.token // empty')
+            if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+              echo "Token error: $(echo "$TOKEN_RESPONSE" | jq -r '.message // "unknown"')" >&2
+              echo ""
+              return 1
+            fi
+            echo "$TOKEN"
           }
 
           DURATION_HOURS="${{ github.event.client_payload.duration_hours || github.event.inputs.duration_hours || '5' }}"
-          DURATION=$((DURATION_HOURS * 3600))
+          DURATION=$(awk "BEGIN {printf \"%.0f\", $DURATION_HOURS * 3600}")
           RESTART_THRESHOLD=$((DURATION - 360))
           START_TIME=$(date +%s)
           RESTART_TRIGGERED=false
@@ -186,7 +194,7 @@ jobs:
               fi
             fi
 
-            [ $ELAPSED -gt $DURATION ] && break
+            [ "$ELAPSED" -gt "$DURATION" ] && break
             sleep 30
           done
 
