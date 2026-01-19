@@ -52,7 +52,9 @@ jobs:
 
       - name: Start server
         env:
-          OAUTH_CLIENTS: ${{ secrets.OAUTH_CLIENTS }}
+          # Add OAUTH_SECRET_<client_id> for each OAuth app
+          OAUTH_SECRET_Ov23lianHkw0Uog0VGxT: ${{ secrets.OAUTH_SECRET_Ov23lianHkw0Uog0VGxT }}
+          OAUTH_SECRET_Ov23liX3UPEO7XugIIbO: ${{ secrets.OAUTH_SECRET_Ov23liX3UPEO7XugIIbO }}
         run: |
           node server.js &
           sleep 2
@@ -81,7 +83,9 @@ jobs:
 
       - name: Monitor
         env:
-          OAUTH_CLIENTS: ${{ secrets.OAUTH_CLIENTS }}
+          # Add OAUTH_SECRET_<client_id> for each OAuth app
+          OAUTH_SECRET_Ov23lianHkw0Uog0VGxT: ${{ secrets.OAUTH_SECRET_Ov23lianHkw0Uog0VGxT }}
+          OAUTH_SECRET_Ov23liX3UPEO7XugIIbO: ${{ secrets.OAUTH_SECRET_Ov23liX3UPEO7XugIIbO }}
           APP_ID: ${{ secrets.APP_ID }}
           APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
         run: |

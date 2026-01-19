@@ -5,11 +5,15 @@ const url = require('url');
 const PORT = process.env.PORT || 3000;
 const ALLOWED_PROVIDERS = (process.env.ALLOWED_PROVIDERS || 'github').split(',');
 
-// OAuth clients: OAUTH_CLIENTS = {"client_id":"secret", ...}
-const GITHUB_CLIENTS = process.env.OAUTH_CLIENTS ? JSON.parse(process.env.OAUTH_CLIENTS) : {};
-
+// OAuth clients from individual secrets: OAUTH_SECRET_<client_id>=<secret>
 function getClientSecret(clientId) {
-  return GITHUB_CLIENTS[clientId];
+  return process.env[`OAUTH_SECRET_${clientId}`];
+}
+
+function getAllClientIds() {
+  return Object.keys(process.env)
+    .filter(k => k.startsWith('OAUTH_SECRET_'))
+    .map(k => k.replace('OAUTH_SECRET_', ''));
 }
 
 const server = http.createServer(async (req, res) => {
@@ -37,7 +41,7 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       github: {
-        client_ids: Object.keys(GITHUB_CLIENTS),
+        client_ids: getAllClientIds(),
         authorize_url: 'https://github.com/login/oauth/authorize',
         callback_url: 'https://oauth.neevs.io/callback'
       }
@@ -146,7 +150,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         // Use provided client_id or fall back to first available
-        const clientId = client_id || Object.keys(GITHUB_CLIENTS)[0];
+        const clientId = client_id || getAllClientIds()[0];
         const clientSecret = getClientSecret(clientId);
 
         if (!clientId || !clientSecret) {
@@ -222,5 +226,5 @@ function exchangeGitHubCode(code, clientId, clientSecret) {
 
 server.listen(PORT, () => {
   console.log(`OAuth proxy server running on port ${PORT}`);
-  console.log(`Configured GitHub clients: ${Object.keys(GITHUB_CLIENTS).length}`);
+  console.log(`Configured GitHub clients: ${getAllClientIds().length}`);
 });
