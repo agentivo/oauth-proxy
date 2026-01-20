@@ -118,8 +118,7 @@ jobs:
               "https://api.github.com/repos/${{ github.repository }}/installation" | jq -r '.id')
 
             if [ -z "$INSTALLATION_ID" ] || [ "$INSTALLATION_ID" = "null" ]; then
-              echo ""
-              return 1
+              return
             fi
 
             TOKEN_RESPONSE=$(curl -sX POST \
@@ -131,8 +130,7 @@ jobs:
             TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.token // empty')
             if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
               echo "Token error: $(echo "$TOKEN_RESPONSE" | jq -r '.message // "unknown"')" >&2
-              echo ""
-              return 1
+              return
             fi
             echo "$TOKEN"
           }
